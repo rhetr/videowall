@@ -29,8 +29,8 @@ def get_video_size(path):
     info = json.loads(subprocess.check_output('ffprobe -v quiet -print_format json -show_streams {}'.format(path), shell=True).decode('utf-8'))
     video_x = info['streams'][0]['coded_width']
     video_y = info['streams'][0]['coded_height']
-    return Size(716, 300)
-    # return Size(video_x, video_y)
+    # return Size(716, 300)
+    return Size(video_x, video_y)
 
 # 
 # bcast = '10.1.15.255'
@@ -94,10 +94,14 @@ def calc_screen_args(screen, wall, mon_x, mon_y, scale):
 
     # scale is actually just straight up the width and height
     mplay_scale = (crop_w, crop_h)
-    crop_args = list(map(lambda x: int(x/scale), [crop_w,crop_h,crop_xpos,crop_ypos]))
-
-    
-    crop = ':'.join(map(str, crop_args))
+    # crop_args = list(map(lambda x: int(x/scale), [crop_w,crop_h,crop_xpos,crop_ypos]))
+    # crop = ':'.join(map(str, crop_args))
+    crop = (
+            crop_w,
+            crop_h,
+            crop_xpos,
+            crop_ypos
+            )
     return {
         'crop': crop,
         'geometry': (geometry_x, geometry_y),
@@ -116,6 +120,13 @@ def start_mplayer(bcast, crop, geometery, xscale, yscale, path):
     subprocess.call(cmd, shell=True)
 
 def main(path, screen_rows, screen_cols):
+    import tkinter
+    tk = tkinter.Tk()
+    h = tkinter.Scrollbar(tk, orient=tkinter.HORIZONTAL)
+    v = tkinter.Scrollbar(tk, orient=tkinter.VERTICAL)
+    canvas = tkinter.Canvas(tk, width=500,height=500)
+    canvas.pack()
+
     screen = get_screen_size()
     video = get_video_size(path)
     print('screen size = {}x{}'.format(screen.w, screen.h))
@@ -125,12 +136,51 @@ def main(path, screen_rows, screen_cols):
     wall = center_wall(wall, display)
     print('display size = {}x{}'.format(display.w, display.h))
     print('wall size = {}x{}; scale = {}x{}'.format(wall.w, wall.h, wall.scale_x, wall.scale_y))
+    
+    ofs = 20
+    div = 10
+    print('wall: ({},{}) to ({},{})'.format(wall.x0[0]+ofs,wall.x0[1]+ofs,wall.x1[0],wall.x1[1]))
+
+    canvas.create_rectangle(0+ofs,ofs,display.w/div+ofs,display.h/div+ofs, width=2)
+    canvas.create_rectangle(wall.x0[0]/div+ofs,wall.x0[1]/div+ofs,wall.x1[0]/div+ofs, wall.x1[1]/div+ofs, outline='red',width=2)
+
+    # for j in range(screen_rows):
+    #     for i in range(screen_cols):
+    #         pprint.pprint('{},{}: {}'.format(i,j,calc_screen_args(screen, wall, i, j, wall.scale_x)))
 
     for j in range(screen_rows):
         for i in range(screen_cols):
-            pprint.pprint('{},{}: {}'.format(i,j,calc_screen_args(screen, wall, i, j, wall.scale_x)))
+            screen_ofs = (screen.w*j/div, screen.h*i/div)
+            canvas.create_rectangle(
+                    ofs+screen_ofs[0],
+                    ofs+screen_ofs[1],
+                    ofs+screen.w*(j+1)/div,
+                    ofs+screen.h*(i+1)/div,
+                    )
+            res = calc_screen_args(screen, wall, j, i, wall.scale_x)
+            if any((param < 0 for param in res['crop'])) \
+                    or not good_bounds(res['geometry'], (screen.w, screen.h)):
+                print('{},{}: no image'.format(j,i))
+                continue
 
+            s = pprint.pformat(res, indent=4)
+            print('{},{}: {}'.format(j,i,s))
+
+            canvas.create_rectangle(
+                    ofs+screen_ofs[0]+res['geometry'][0]/div,
+                    ofs+screen_ofs[1]+res['geometry'][1]/div,
+                    ofs+screen_ofs[0]+res['geometry'][0]/div+10,
+                    ofs+screen_ofs[1]+res['geometry'][1]/div+10
+                    )
+    tk.mainloop()
+
+def good_bounds(geom, screen):
+    for i in range(2):
+        if geom[i] > screen[i]:
+            return False
+    return True
 
 if __name__ == '__main__':
-    path, rows, columns = sys.argv[1:4]
-    main(path, int(rows), int(columns))
+    # path, rows, columns = sys.argv[1:4]
+    # main(path, int(rows), int(columns))
+    main("cosmos.ogv", 3,5)
