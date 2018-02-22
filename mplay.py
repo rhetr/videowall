@@ -72,12 +72,11 @@ def calc_display(screen, mon_rows, mon_cols, bezel = (0,0)):
             (( bezel[0] + screen.w ) * mon_cols - bezel[0],
             ( bezel[1] + screen.h ) * mon_rows - bezel[1]))
 
-def calc_vars(screen_size, mon_num, bezel_size, wall):
+def calc_window_vars(screen_size, mon_num, bezel_size, wall):
     s0 = (screen_size + bezel_size) * mon_num
     s1 = s0 + screen_size
     
     w0, w1 = wall
-    crop_pos = s0 - w0 
 
     # print("{}->{}, {}->{}".format(s0,s1,w0,w1))
     if s1 < w0 or w1 < s0: # wall not in screen
@@ -91,32 +90,31 @@ def calc_vars(screen_size, mon_num, bezel_size, wall):
 
     # upper bound
     if s1 < w1: # wall ends after screen
-        crop_size = s1 - max(w0,s0)
+        win_size = s1 - max(w0,s0)
     else: # w1 <= s1: wall ends in screen
-        crop_size = w1 - max(w0,s0)
+        win_size = w1 - max(w0,s0)
 
-    return (crop_pos, crop_size, win_pos)
+    return (win_size, win_pos)
 
-def calc_transform(screen, wall, mon, bezel):
-    mon_y, mon_x = mon
-    # window_pos is local to screen
-    # crop is local to video (wall for now)
+def calc_transform(video, screen, wall, mon_index, bezel):
+    mon_y, mon_x = mon_index
 
-    crop_xpos, crop_w, window_pos_x = calc_vars(
-            screen.w, mon_x, bezel[0],
-             (wall.x0[0],wall.x1[0]))
-    crop_ypos, crop_h, window_pos_y = calc_vars(
+    win_w, win_x = calc_window_vars(
+       screen.w, mon_x, bezel[0],
+        (wall.x0[0],wall.x1[0]))
+
+    win_h, win_y = calc_window_vars(
             screen.h, mon_y, bezel[1],
              (wall.x0[1],wall.x1[1]))
 
     window = Rect(
-            pos=(window_pos_x, window_pos_y),
-            size=(crop_w, crop_h))
-    crop = Rect(
-            pos=(crop_xpos, crop_ypos),
-            size=(crop_w,crop_h))
+            pos=(win_x, win_y),
+            size=(win_w, win_h))
+    # crop = Rect(
+    #         pos=(crop_xpos, crop_ypos),
+    #         size=(crop_w,crop_h))
     return {
-        'crop': crop,
+        'crop': None,
         'window': window,
     }
 
@@ -213,6 +211,7 @@ def main(path, screen_rows, screen_cols):
 
             # print('[{},{}]:'.format(i,j))
             res = calc_transform(
+                    video,
                     screen, 
                     wall, 
                     (i,j),
@@ -228,8 +227,8 @@ def main(path, screen_rows, screen_cols):
             canvas.create_rectangle(
                     screen_ofs[0] + res['window'].x,
                     screen_ofs[1] + res['window'].y,
-                    screen_ofs[0] + res['window'].x + res['crop'].w,
-                    screen_ofs[1] + res['window'].y + res['crop'].h,
+                    screen_ofs[0] + res['window'].x + res['window'].w,
+                    screen_ofs[1] + res['window'].y + res['window'].h,
                     outline=color, width=3)
 
             # canvas.create_text(
