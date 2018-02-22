@@ -1,45 +1,54 @@
 #!/usr/bin/env python3
 # so ugly
-# need to account for bezels
-# bezel_x0
-# bezel_y0
-# bezel_y1
+
 import subprocess
 import json
 import sys
 import pprint
 
-class Size:
-    def __init__(self, w, h):
-        self.w = int(w)
-        self.h = int(h)
-        self.ar = self.w/self.h
-        
+colors = ('green','blue','orange','yellow')
 
-def get_screen_size():
+div = 16.0
+    
+class Rect:
+    def __init__(self, pos=(0, 0), size=(0,0), parent=None):
+        self.setPos(pos)
+        self.setSize(size)
+        self.setParent(parent)
+    
+    def setParent(self, rect):
+        self.parent = rect
+
+    def setPos(self, pos):
+        self.pos = pos
+        self.x = pos[0]
+        self.y = pos[1]
+
+    def setSize(self, size):
+        self.size = size
+        self.w = size[0]
+        self.h = size[1]
+        self.ar = self.w / self.h
+
+def get_screen_rect():
     screen_geom = subprocess.check_output("xwininfo -root | grep geometry", shell=True).decode('utf-8').split(' ')[-1].split('x')
 
-    screen_x = int(screen_geom[0])
-    screen_y = int(screen_geom[1].split('+')[0])
-    #return Size(1920,1080)
-    return Size(1080,1920)
-    #return Size(screen_x, screen_y)
+    screen_w = int(screen_geom[0])
+    screen_h = int(screen_geom[1].split('+')[0])
+    size = (screen_w, screen_h)
+    size = (1080, 1920)
+    size = tuple(s/div for s in size)
+    return Rect(size=size)
 
 
-def get_video_size(path):
+def get_video_rect(path):
     info = json.loads(subprocess.check_output('ffprobe -v quiet -print_format json -show_streams {}'.format(path), shell=True).decode('utf-8'))
-    video_x = info['streams'][0]['coded_width']
-    video_y = info['streams'][0]['coded_height']
-    return Size(300, 716)
-    # return Size(video_x, video_y)
+    video_w = info['streams'][0]['coded_width']
+    video_h = info['streams'][0]['coded_height']
+    size = (video_w, video_h)
+    size = (1920/div, 1080/div)
+    return Rect(size=size)
 
-# 
-# bcast = '10.1.15.255'
-# crop = '358:150:358:0'
-# geometry = '0:297'
-# scale = (1440, 603)
-
-# size video
 def calc_wall_size(display, video):
     if display.ar > video.ar:
         # vertical letterboxing; size v.h to display.h
@@ -54,59 +63,61 @@ def calc_wall_size(display, video):
         # they're the same
         video_w = display.w
         video_h = display.h
-    wall = Size(video_w, video_h)
-    wall.scale_x = wall.w / video.w
-    wall.scale_y = wall.h / video.h
+
+    wall = Rect(size=(video_w,video_h))
     return wall
 
-def calc_display(screen, mon_rows, mon_cols):
-    return Size(screen.w * mon_rows, screen.h * mon_cols)
+def calc_display(screen, mon_rows, mon_cols, bezel = (0,0)):
+    return Rect(size=
+            (( bezel[0] + screen.w ) * mon_cols - bezel[0],
+            ( bezel[1] + screen.h ) * mon_rows - bezel[1]))
 
-
-def calc_screen_args(screen, wall, mon_x, mon_y, scale):
-    # geometry is local to screen
-    # crop is local to video (wall for now)
-    # (uh ignore scale for now)
-    screen_x0 = (screen.w * mon_x, screen.h * mon_y)
-    screen_x1 = (screen.w * (mon_x+1), screen.h * (mon_y+1))
-    geometry_x = 0
-    geometry_y = 0
-
+def calc_vars(screen_size, mon_num, bezel_size, wall):
+    s0 = (screen_size + bezel_size) * mon_num
+    s1 = s0 + screen_size
     
-    crop_xpos = screen_x0[0] - wall.x0[0] 
-    if screen_x0[0] < wall.x0[0]:  
-        geometry_x = wall.x0[0]
-        crop_w = screen_x1[0] - wall.x0[0]
-        crop_xpos = 0
-    elif screen_x1[0] > wall.x1[0]:
-        crop_w = wall.x1[0] - screen_x0[0]
-    else:
-        crop_w = screen_x1[0] - screen_x0[0]
+    w0, w1 = wall
+    crop_pos = s0 - w0 
 
-    crop_ypos = screen_x0[0] - wall.x0[0] 
-    if screen_x0[1] < wall.x0[1]:
-        geometry_y = wall.x0[1]
-        crop_h = screen_x1[1] - wall.x0[1]
-        crop_ypos = 0
-    elif screen_x1[1] > wall.x1[1]:
-        crop_h = wall.x1[1] - screen_x0[1]
-    else: # screen_x1[1] < wall.x1[1]
-        crop_h = screen_x1[1] - screen_x0[1]
+    # print("{}->{}, {}->{}".format(s0,s1,w0,w1))
+    if s1 < w0 or w1 < s0: # wall not in screen
+        return (None, None, None)
 
-    # scale is actually just straight up the width and height
-    mplay_scale = (crop_w, crop_h)
-    # crop_args = list(map(lambda x: int(x/scale), [crop_w,crop_h,crop_xpos,crop_ypos]))
-    # crop = ':'.join(map(str, crop_args))
-    crop = (
-            crop_w,
-            crop_h,
-            crop_xpos,
-            crop_ypos
-            )
+    # lower bound
+    if s0 < w0: # wall starts in screen
+        win_pos = w0 - s0
+    else: # w0 <= s0: wall starts before screen
+        win_pos = 0
+
+    # upper bound
+    if s1 < w1: # wall ends after screen
+        crop_size = s1 - max(w0,s0)
+    else: # w1 <= s1: wall ends in screen
+        crop_size = w1 - max(w0,s0)
+
+    return (crop_pos, crop_size, win_pos)
+
+def calc_transform(screen, wall, mon, bezel):
+    mon_y, mon_x = mon
+    # window_pos is local to screen
+    # crop is local to video (wall for now)
+
+    crop_xpos, crop_w, window_pos_x = calc_vars(
+            screen.w, mon_x, bezel[0],
+             (wall.x0[0],wall.x1[0]))
+    crop_ypos, crop_h, window_pos_y = calc_vars(
+            screen.h, mon_y, bezel[1],
+             (wall.x0[1],wall.x1[1]))
+
+    window = Rect(
+            pos=(window_pos_x, window_pos_y),
+            size=(crop_w, crop_h))
+    crop = Rect(
+            pos=(crop_xpos, crop_ypos),
+            size=(crop_w,crop_h))
     return {
         'crop': crop,
-        'geometry': (geometry_x, geometry_y),
-        'scale': mplay_scale
+        'window': window,
     }
 
 def center_wall(wall, display):
@@ -116,86 +127,118 @@ def center_wall(wall, display):
     wall.x1 = (display.w - w_disp, display.h - h_disp)
     return wall
 
-def start_mplayer(bcast, crop, geometery, xscale, yscale, path):
-    cmd = "DISPLAY=:0 mplayer -udp-slave -udp-ip {} -vf {} -geometry {} -x {} -y {} {}".format(bcast, crop, geometry, xscale, yscale, path)
+def start_mplayer(bcast, crop, window, path):
+    '''
+    bcast : broadcast address, maybe 10.1.15.255
+    crop : Rect, in original video resolution + coordinates (formatted w:h:x:y)
+    crop.pos : (x, y) 
+    crop.size : (w, h)
+    window : Rect of mplayer window
+    window.pos : x:y, pixel location of mplayer in screen coordinates
+    window.size : (w, h) size of mplayer window, automatically scaled
+    path : obvious
+    '''
+    crop_str = ':'.join(crop.size + crop.pos)
+    
+    cmd = "DISPLAY=:0 mplayer -udp-slave -udp-ip {} -vf {} -geometry {} -x {} -y {} {}".format(bcast, crop_str, window.pos, window.w, window.h, path)
     subprocess.call(cmd, shell=True)
 
 def main(path, screen_rows, screen_cols):
-    bezel = (10, 10)
+    bezel = (5, 10)
+
+    screen = get_screen_rect()
+    video = get_video_rect(path)
+    print('screen size = {}x{}'.format(screen.w, screen.h))
+    print('video size = {}x{}'.format(video.w, video.h))
+    display = calc_display(screen, screen_rows, screen_cols, bezel)
+    wall = calc_wall_size(display, video)
+    wall = center_wall(wall, display)
+    print('display size = {}x{}'.format(display.w, display.h))
+    print('wall size = {}x{}'.format(wall.w, wall.h))
+    scale_x = wall.w / video.w
+    scale_y = wall.h / video.h
+    print('wall scale = {},{}'.format(scale_x, scale_y))
+    print()
+    
+    ofs = 20
 
     import tkinter
     tk = tkinter.Tk()
     h = tkinter.Scrollbar(tk, orient=tkinter.HORIZONTAL)
     v = tkinter.Scrollbar(tk, orient=tkinter.VERTICAL)
-    canvas = tkinter.Canvas(tk, width=500,height=500)
+    canvas = tkinter.Canvas(tk, width=700,height=500)
     canvas.pack()
 
-    screen = get_screen_size()
-    video = get_video_size(path)
-    print('screen size = {}x{}'.format(screen.w, screen.h))
-    print('video size = {}x{}'.format(video.w, video.h))
-    display = calc_display(screen, screen_rows, screen_cols)
-    wall = calc_wall_size(display, video)
-    wall = center_wall(wall, display)
-    print('display size = {}x{}'.format(display.w, display.h))
-    print('wall size = {}x{}; scale = {}x{}'.format(wall.w, wall.h, wall.scale_x, wall.scale_y))
-    
-    ofs = 20
-    div = 10
-    print('wall: ({},{}) to ({},{})'.format(wall.x0[0]+ofs,wall.x0[1]+ofs,wall.x1[0],wall.x1[1]))
-
     canvas.create_rectangle(
-            0+ofs,
             ofs,
-            display.w/div+ofs+bezel[0],
-            display.h/div+ofs+bezel[1], 
-            width=2
-            )
+            ofs,
+            ofs + display.w + bezel[0] * 2,
+            ofs + display.h + bezel[1] * 2, 
+            width=2)
+    canvas.create_text(
+            ofs,
+            ofs,
+            text="display", anchor="sw")
+
     canvas.create_rectangle(
-            wall.x0[0]/div+ofs+bezel[0],
-            wall.x0[1]/div+ofs+bezel[1],
-            wall.x1[0]/div+ofs,
-            wall.x1[1]/div+ofs,
+            ofs + wall.x0[0] + bezel[0],
+            ofs + wall.x0[1] + bezel[1],
+            ofs + wall.x1[0] + bezel[0],
+            ofs + wall.x1[1] + bezel[1],
             outline='red',width=2)
+    canvas.create_text(
+            ofs + wall.x0[0] + bezel[0],
+            ofs + wall.x0[1] + bezel[1],
+            text="wall", anchor="sw")
 
 
-    for j in range(screen_rows):
-        for i in range(screen_cols):
+    for i in range(screen_rows):
+        for j in range(screen_cols):
+            # draw screens
             screen_ofs = (
-                    screen.w*j/div+bezel[0],
-                    screen.h*i/div+bezel[1]
-                    )
-            canvas.create_rectangle(
-                    ofs+screen_ofs[0],
-                    ofs+screen_ofs[1],
-                    ofs+screen.w*(j+1)/div,
-                    ofs+screen.h*(i+1)/div,
-                    )
+                    ofs + j * (screen.w + bezel[0]) + bezel[0],
+                    ofs + i * (screen.h + bezel[1]) + bezel[1])
 
-            res = calc_screen_args(screen, wall, j, i, wall.scale_x)
-            if any((param < 0 for param in res['crop'])) \
-                    or not good_bounds(res['geometry'], (screen.w, screen.h)):
-                print('{},{}: no image'.format(j,i))
-                continue
+            canvas.create_rectangle(
+                    screen_ofs[0],
+                    screen_ofs[1],
+                    screen_ofs[0] + screen.w,
+                    screen_ofs[1] + screen.h)
+
+            canvas.create_text(
+                    screen_ofs[0],
+                    screen_ofs[1] + screen.h,
+                    text="[{},{}]".format(i,j),
+                    anchor='sw')
+
+            # print('[{},{}]:'.format(i,j))
+            res = calc_transform(
+                    screen, 
+                    wall, 
+                    (i,j),
+                    bezel)
 
             s = pprint.pformat(res, indent=4)
-            print('{},{}: {}'.format(j,i,s))
+            
+            color = colors[(j + i * screen_rows) % len(colors)]
 
+            if res['window'].w == None \
+                or res['window'].h == None:    
+                continue
             canvas.create_rectangle(
-                    ofs+screen_ofs[0]+res['geometry'][0]/div,
-                    ofs+screen_ofs[1]+res['geometry'][1]/div,
-                    ofs+screen_ofs[0]+res['geometry'][0]/div+10,
-                    ofs+screen_ofs[1]+res['geometry'][1]/div+10
-                    )
-    tk.mainloop()
+                    screen_ofs[0] + res['window'].x,
+                    screen_ofs[1] + res['window'].y,
+                    screen_ofs[0] + res['window'].x + res['crop'].w,
+                    screen_ofs[1] + res['window'].y + res['crop'].h,
+                    outline=color, width=3)
 
-def good_bounds(geom, screen):
-    for i in range(2):
-        if geom[i] > screen[i]:
-            return False
-    return True
+            # canvas.create_text(
+            #         screen_ofs[0] + res['window_pos'][0],
+            #         screen_ofs[1] + res['window_pos'][1],
+            #         text="[{},{}]".format(j,i))
+    tk.mainloop()
 
 if __name__ == '__main__':
     # path, rows, columns = sys.argv[1:4]
     # main(path, int(rows), int(columns))
-    main("cosmos.ogv", 4, 1)
+    main("cosmos.ogv", 2, 4)
