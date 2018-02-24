@@ -12,8 +12,8 @@ div = 16.0
     
 class Rect:
     def __init__(self, pos=(0, 0), size=(0,0), parent=None):
-        self.setPos(pos)
         self.setSize(size)
+        self.setPos(pos)
         self.setParent(parent)
     
     def setParent(self, rect):
@@ -21,14 +21,14 @@ class Rect:
 
     def setPos(self, pos):
         self.pos = pos
-        self.x = pos[0]
-        self.y = pos[1]
+        self.x, self.y = pos
+        self.x1 = (self.x + self.w, self.y + self.h)
+        # print('setpos',self.x+self.w, self.y+self.h)
 
     def setSize(self, size):
         self.size = size
-        self.w = size[0]
-        self.h = size[1]
-        self.ar = self.w / self.h
+        self.w, self.h = size
+        self.ar = self.w / self.h if self.h else 0
 
 def get_screen_rect():
     screen_geom = subprocess.check_output("xwininfo -root | grep geometry", shell=True).decode('utf-8').split(' ')[-1].split('x')
@@ -42,10 +42,10 @@ def get_screen_rect():
 
 
 def get_video_rect(path):
-    info = json.loads(subprocess.check_output('ffprobe -v quiet -print_format json -show_streams {}'.format(path), shell=True).decode('utf-8'))
-    video_w = info['streams'][0]['coded_width']
-    video_h = info['streams'][0]['coded_height']
-    size = (video_w, video_h)
+    # info = json.loads(subprocess.check_output('ffprobe -v quiet -print_format json -show_streams {}'.format(path), shell=True).decode('utf-8'))
+    # video_w = info['streams'][0]['coded_width']
+    # video_h = info['streams'][0]['coded_height']
+    # size = (video_w, video_h)
     size = (1920/div, 1080/div)
     return Rect(size=size)
 
@@ -64,65 +64,77 @@ def calc_wall_size(display, video):
         video_w = display.w
         video_h = display.h
 
-    wall = Rect(size=(video_w,video_h))
-    return wall
+    return Rect(size=(video_w,video_h))
 
 def calc_display(screen, mon_rows, mon_cols, bezel = (0,0)):
     return Rect(size=
             (( bezel[0] + screen.w ) * mon_cols - bezel[0],
             ( bezel[1] + screen.h ) * mon_rows - bezel[1]))
 
-def calc_window_vars(screen_size, mon_num, bezel_size, wall):
-    s0 = (screen_size + bezel_size) * mon_num
-    s1 = s0 + screen_size
-    
-    w0, w1 = wall
-
-    # print("{}->{}, {}->{}".format(s0,s1,w0,w1))
+def calc_win_vars(s0, s1, w0, w1):
+    # print(s0,s1,w0,w1)
     if s1 < w0 or w1 < s0: # wall not in screen
-        return (None, None, None)
+        win_size = None
+        win_pos = None
+        # return (None, None)
 
-    # lower bound
     if s0 < w0: # wall starts in screen
         win_pos = w0 - s0
     else: # w0 <= s0: wall starts before screen
         win_pos = 0
 
-    # upper bound
     if s1 < w1: # wall ends after screen
         win_size = s1 - max(w0,s0)
     else: # w1 <= s1: wall ends in screen
         win_size = w1 - max(w0,s0)
 
+    # print("size:{}, pos:{}".format(win_size, win_pos))
     return (win_size, win_pos)
 
+def calc_crop_vars(screen_pos_g, win_pos_l, win_size, wall_pos_g, scale):
+    crop_pos = (screen_pos_g + win_pos_l - wall_pos_g) / scale
+    # print('davars', screen_pos_g, win_pos_l, wall_pos_g)
+    crop_size = win_size / scale
+    # print(crop_pos, crop_size)
+    # print("{0:.2f},{0:.2f}".format(crop_pos, crop_size))
+    return (crop_size, crop_pos)
+
 def calc_transform(video, screen, wall, mon_index, bezel):
-    mon_y, mon_x = mon_index
+    scale = wall.w / video.w
+    win_size = [0,0]
+    win_pos = [0,0]
 
-    win_w, win_x = calc_window_vars(
-       screen.w, mon_x, bezel[0],
-        (wall.x0[0],wall.x1[0]))
+    crop_size = [0,0]
+    crop_pos = [0,0]
 
-    win_h, win_y = calc_window_vars(
-            screen.h, mon_y, bezel[1],
-             (wall.x0[1],wall.x1[1]))
+    for i in range(2):
+        w0, w1 = (wall.pos[i], wall.x1[i])
+        s0 = (screen.size[i] + bezel[i]) * mon_index[i]
+        s1 = s0 + screen.size[i]
+
+        win_size[i], win_pos[i] = calc_win_vars(s0, s1, w0, w1)
+        crop_size[i], crop_pos[i] = calc_crop_vars(s0, win_pos[i], win_size[i], wall.pos[i], scale)
 
     window = Rect(
-            pos=(win_x, win_y),
-            size=(win_w, win_h))
-    # crop = Rect(
-    #         pos=(crop_xpos, crop_ypos),
-    #         size=(crop_w,crop_h))
+            pos = tuple(win_pos),
+            size = tuple(win_size))
+
+    crop = Rect(
+            pos = tuple(crop_pos),
+            size = tuple(crop_size))
+    print(crop.pos, crop.size)
+
     return {
-        'crop': None,
-        'window': window,
+        'crop': crop,
+        'window': window
     }
 
 def center_wall(wall, display):
     w_disp = int( (display.w - wall.w) / 2 )
     h_disp = int( (display.h - wall.h) / 2 )
-    wall.x0 = (w_disp, h_disp)
-    wall.x1 = (display.w - w_disp, display.h - h_disp)
+
+    x0 = (w_disp, h_disp)
+    wall.setPos(x0)
     return wall
 
 def start_mplayer(bcast, crop, window, path):
@@ -179,14 +191,14 @@ def main(path, screen_rows, screen_cols):
             text="display", anchor="sw")
 
     canvas.create_rectangle(
-            ofs + wall.x0[0] + bezel[0],
-            ofs + wall.x0[1] + bezel[1],
+            ofs + wall.pos[0] + bezel[0],
+            ofs + wall.pos[1] + bezel[1],
             ofs + wall.x1[0] + bezel[0],
             ofs + wall.x1[1] + bezel[1],
             outline='red',width=2)
     canvas.create_text(
-            ofs + wall.x0[0] + bezel[0],
-            ofs + wall.x0[1] + bezel[1],
+            ofs + wall.pos[0] + bezel[0],
+            ofs + wall.pos[1] + bezel[1],
             text="wall", anchor="sw")
 
 
@@ -214,7 +226,7 @@ def main(path, screen_rows, screen_cols):
                     video,
                     screen, 
                     wall, 
-                    (i,j),
+                    (j,i),
                     bezel)
 
             s = pprint.pformat(res, indent=4)
@@ -240,4 +252,4 @@ def main(path, screen_rows, screen_cols):
 if __name__ == '__main__':
     # path, rows, columns = sys.argv[1:4]
     # main(path, int(rows), int(columns))
-    main("cosmos.ogv", 2, 4)
+    main("cosmos.ogv", 1, 4)
