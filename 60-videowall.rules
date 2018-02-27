@@ -1,0 +1,3 @@
+
+KERNEL=="sdb1", SYMLINK+="videowall-target", ACTION=="add", RUN+="/home/perry/test.sh"
+KERNEL=="sdb1", ACTION=="remove", RUN+="/home/perry/test.sh"
