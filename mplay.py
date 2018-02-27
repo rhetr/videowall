@@ -8,7 +8,7 @@ import pprint
 
 colors = ('green','blue','orange','yellow')
 
-div = 16.0
+div = 3.0
     
 class Rect:
     def __init__(self, pos=(0, 0), size=(0,0), parent=None):
@@ -30,12 +30,26 @@ class Rect:
         self.w, self.h = size
         self.ar = self.w / self.h if self.h else 0
 
-def get_screen_rect():
-    screen_geom = subprocess.check_output("xwininfo -root | grep geometry", shell=True).decode('utf-8').split(' ')[-1].split('x')
+def xpdyinfo(prop):
+    return tuple(
+            map(
+                int,
+                list(
+                    filter(
+                        None, 
+                        subprocess.check_output('xdpyinfo | grep {}'.format(prop), shell=True)
+                        .decode().split(' ')
+                        )
+                    )[1].split('x')
+                )
+            )
 
-    screen_w = int(screen_geom[0])
-    screen_h = int(screen_geom[1].split('+')[0])
-    size = (screen_w, screen_h)
+
+def get_screen_rect():
+    size = xpdyinfo('dimensions')
+    ppi = xpdyinfo('resolution')
+    print(size)
+
     size = (1080, 1920)
     size = tuple(s/div for s in size)
     return Rect(size=size)
@@ -46,10 +60,12 @@ def get_video_rect(path):
     # video_w = info['streams'][0]['coded_width']
     # video_h = info['streams'][0]['coded_height']
     # size = (video_w, video_h)
-    size = (1920/div, 1080/div)
+    # size = (1920, 1080)
+    size = (640,480)
+    size = tuple(s/div for s in size)
     return Rect(size=size)
 
-def calc_wall_size(display, video):
+def get_wall_rect(display, video):
     if display.ar > video.ar:
         # vertical letterboxing; size v.h to display.h
         video_w = int( display.h / video.h * video.w )
@@ -65,6 +81,14 @@ def calc_wall_size(display, video):
         video_h = display.h
 
     return Rect(size=(video_w,video_h))
+
+def center_wall(wall, display):
+    w_disp = int( (display.w - wall.w) / 2 )
+    h_disp = int( (display.h - wall.h) / 2 )
+
+    x0 = (w_disp, h_disp)
+    wall.setPos(x0)
+    return wall
 
 def calc_display(screen, mon_rows, mon_cols, bezel = (0,0)):
     return Rect(size=
@@ -116,26 +140,18 @@ def calc_transform(video, screen, wall, mon_index, bezel):
         crop_size[i], crop_pos[i] = calc_crop_vars(s0, win_pos[i], win_size[i], wall.pos[i], scale)
 
     window = Rect(
-            pos = tuple(win_pos),
-            size = tuple(win_size))
+            pos = tuple(map(round, win_pos)),
+            size = tuple(map(round, win_size)))
 
     crop = Rect(
-            pos = tuple(crop_pos),
-            size = tuple(crop_size))
+            pos = tuple(map(round, crop_pos)),
+            size = tuple(map(round, crop_size)))
     print(crop.pos, crop.size)
 
     return {
         'crop': crop,
         'window': window
     }
-
-def center_wall(wall, display):
-    w_disp = int( (display.w - wall.w) / 2 )
-    h_disp = int( (display.h - wall.h) / 2 )
-
-    x0 = (w_disp, h_disp)
-    wall.setPos(x0)
-    return wall
 
 def start_mplayer(bcast, crop, window, path):
     '''
@@ -154,19 +170,20 @@ def start_mplayer(bcast, crop, window, path):
     subprocess.call(cmd, shell=True)
 
 def main(path, screen_rows, screen_cols):
-    bezel = (5, 10)
+    bezel = (20, 20)
 
     screen = get_screen_rect()
     video = get_video_rect(path)
-    print('screen size = {}x{}'.format(screen.w, screen.h))
-    print('video size = {}x{}'.format(video.w, video.h))
     display = calc_display(screen, screen_rows, screen_cols, bezel)
-    wall = calc_wall_size(display, video)
+    wall = get_wall_rect(display, video)
     wall = center_wall(wall, display)
-    print('display size = {}x{}'.format(display.w, display.h))
-    print('wall size = {}x{}'.format(wall.w, wall.h))
     scale_x = wall.w / video.w
     scale_y = wall.h / video.h
+
+    print('screen size = {}x{}'.format(screen.w, screen.h))
+    print('video size = {}x{}'.format(video.w, video.h))
+    print('display size = {}x{}'.format(display.w, display.h))
+    print('wall size = {}x{}'.format(wall.w, wall.h))
     print('wall scale = {},{}'.format(scale_x, scale_y))
     print()
     
@@ -174,10 +191,8 @@ def main(path, screen_rows, screen_cols):
 
     import tkinter
     tk = tkinter.Tk()
-    h = tkinter.Scrollbar(tk, orient=tkinter.HORIZONTAL)
-    v = tkinter.Scrollbar(tk, orient=tkinter.VERTICAL)
     canvas = tkinter.Canvas(tk, width=700,height=500)
-    canvas.pack()
+    canvas.pack(fill=tkinter.BOTH, expand=tkinter.YES)
 
     canvas.create_rectangle(
             ofs,
@@ -251,5 +266,6 @@ def main(path, screen_rows, screen_cols):
 
 if __name__ == '__main__':
     # path, rows, columns = sys.argv[1:4]
-    # main(path, int(rows), int(columns))
-    main("cosmos.ogv", 1, 4)
+    # main(path, int(rows), int(columns)) 
+    # main("cosmos.ogv", 1, 4)
+    main("cosmos.ogv", 2,5)
