@@ -15,15 +15,15 @@ class Rect:
         self.parent = rect
 
     def setPos(self, pos):
-        self.pos = pos
-        self.x, self.y = pos
+        self.pos = tuple(pos)
+        self.x, self.y = self.pos
         self.x1 = (self.x + self.w, self.y + self.h)
         # print('setpos',self.x+self.w, self.y+self.h)
 
     def setSize(self, size):
-        self.size = size
-        self.w, self.h = size
-        self.ar = self.w / self.h if self.h else 0
+        self.size = tuple(size)
+        self.w, self.h = self.size
+        self.ar = self.w / self.h if self.h else None
 
 def xpdyinfo(prop):
     return tuple( map( int,
@@ -34,14 +34,15 @@ def xpdyinfo(prop):
                 ))
 
 
-def get_screen_rect():
-    size = xpdyinfo('dimensions')
-    ppi = xpdyinfo('resolution')
-    print(size)
+def get_screen_rect(res = None):
+    if not res:
+        res = xpdyinfo('dimensions')
+        ppi = xpdyinfo('resolution')
+        print(size)
+        # size = (1080, 1920)
+        res = (1440, 900)
 
-    # size = (1080, 1920)
-    size = (1440, 900)
-    return Rect(size=size)
+    return Rect(size = res)
 
 
 def get_video_rect(path):
@@ -50,12 +51,11 @@ def get_video_rect(path):
             '-print_format', 'json',
             '-show_streams',
             path ]
-    # info = json.loads(subprocess.check_output('ffprobe -v quiet -print_format json -show_streams {}'.format(path), shell=True).decode('utf-8'))
-    info = json.loads(subprocess.check_output(cmd).decode())
-    video_w = info['streams'][0]['coded_width']
-    video_h = info['streams'][0]['coded_height']
-    size = (video_w, video_h)
-    # size = (1920, 1080)
+    # info = json.loads(subprocess.check_output(cmd).decode())
+    # video_w = info['streams'][0]['coded_width']
+    # video_h = info['streams'][0]['coded_height']
+    # size = (video_w, video_h)
+    size = (1920, 1080)
     # size = (640,480)
     return Rect(size=size)
 
@@ -90,31 +90,26 @@ def calc_display(screen, mon_rows, mon_cols, bezel = (0,0)):
             ( bezel[1] + screen.h ) * mon_rows - bezel[1]))
 
 def calc_win_vars(s0, s1, w0, w1):
-    # print(s0,s1,w0,w1)
     if s1 < w0 or w1 < s0: # wall not in screen
         win_size = None
         win_pos = None
         # return (None, None)
+    else:
+        if s0 < w0: # wall starts in screen
+            win_pos = w0 - s0
+        else: # w0 <= s0: wall starts before screen
+            win_pos = 0
 
-    if s0 < w0: # wall starts in screen
-        win_pos = w0 - s0
-    else: # w0 <= s0: wall starts before screen
-        win_pos = 0
+        if s1 < w1: # wall ends after screen
+            win_size = s1 - max(w0,s0)
+        else: # w1 <= s1: wall ends in screen
+            win_size = w1 - max(w0,s0)
 
-    if s1 < w1: # wall ends after screen
-        win_size = s1 - max(w0,s0)
-    else: # w1 <= s1: wall ends in screen
-        win_size = w1 - max(w0,s0)
-
-    # print("size:{}, pos:{}".format(win_size, win_pos))
     return (win_size, win_pos)
 
 def calc_crop_vars(screen_pos_g, win_pos_l, win_size, wall_pos_g, scale):
     crop_pos = (screen_pos_g + win_pos_l - wall_pos_g) / scale
-    # print('davars', screen_pos_g, win_pos_l, wall_pos_g)
     crop_size = win_size / scale
-    # print(crop_pos, crop_size)
-    # print("{0:.2f},{0:.2f}".format(crop_pos, crop_size))
     return (crop_size, crop_pos)
 
 def calc_transform(video, screen, wall, mon_index, bezel):
@@ -131,15 +126,20 @@ def calc_transform(video, screen, wall, mon_index, bezel):
         s1 = s0 + screen.size[i]
 
         win_size[i], win_pos[i] = calc_win_vars(s0, s1, w0, w1)
+
+        if win_size[i] == None:
+            return None
+
         crop_size[i], crop_pos[i] = calc_crop_vars(s0, win_pos[i], win_size[i], wall.pos[i], scale)
 
+
     window = Rect(
-            pos = tuple(map(round, win_pos)),
-            size = tuple(map(round, win_size)))
+            pos = map(round, win_pos),
+            size = map(round, win_size))
 
     crop = Rect(
-            pos = tuple(map(round, crop_pos)),
-            size = tuple(map(round, crop_size)))
+            pos = map(round, crop_pos),
+            size = map(round, crop_size))
 
     return {
         'index': mon_index[::-1],
@@ -161,15 +161,15 @@ def gen_mplayer_cmd(bcast, crop, window, path):
     crop_str = ':'.join(map(str, crop.size + crop.pos))
 
     
-    cmd = "DISPLAY=:0 mplayer -udp-slave -udp-ip {} -vf crop {} -geometry {}:{} -x {} -y {} {}".format(bcast, crop_str, window.x, window.y, window.w, window.h, path)
+    cmd = "DISPLAY=:0 mplayer -udp-slave -udp-ip {} -vf crop={} -geometry {}:{} -x {} -y {} {}".format(bcast, crop_str, window.x, window.y, window.w, window.h, path)
     return cmd
     #subprocess.call(cmd, shell=True)
 
-def main(path, size, draw = False):
+def gen_videowall_cmds(path, size, res = None, draw = False):
     screen_rows, screen_cols = size
     bezel = (100, 100)
 
-    screen = get_screen_rect()
+    screen = get_screen_rect(res)
     video = get_video_rect(path)
     display = calc_display(screen, screen_rows, screen_cols, bezel)
     wall = get_wall_rect(display, video)
@@ -184,22 +184,28 @@ def main(path, size, draw = False):
     print('wall scale = {},{}'.format(scale_x, scale_y))
     print()
     
-
-    results = [
+    results = (
             calc_transform(video, screen , wall, (j,i), bezel)
             for j in range(screen_cols)
             for i in range(screen_rows)
-            ]
+            )
 
+    results = list(filter(None, results))
+
+    final = []
     for res in results:
         cmd = gen_mplayer_cmd('10.1.15.255', res['crop'], res['window'], path)
-        print("{}: {}".format(res['index'], cmd))
+        # print("{}: {}".format(res['index'], cmd))
+        final.append({'pos': res['index'], 'cmd': cmd})
 
     if draw:
-        draw_result(display, wall, screen, bezel, screen_rows, results)
+        draw_result(display, wall, screen, bezel, size, results)
+
+    return final
 
 
-def draw_result(display, wall, screen, bezel, screen_rows, results):
+def draw_result(display, wall, screen, bezel, size, results):
+    screen_rows, screen_cols = size
     import tkinter
     tk_scale = 0.2
     tk_ofs = 20/tk_scale
@@ -233,28 +239,29 @@ def draw_result(display, wall, screen, bezel, screen_rows, results):
             tk_ofs + wall.pos[1] + bezel[1],
             text="wall", anchor="sw")
 
+    for i in range(screen_rows):
+        for j in range(screen_cols):
+            tk_screen_ofs = (
+                    tk_ofs + j * (screen.w + bezel[0]) + bezel[0],
+                    tk_ofs + i * (screen.h + bezel[1]) + bezel[1])
+
+            canvas.create_rectangle(
+                    tk_screen_ofs[0],
+                    tk_screen_ofs[1],
+                    tk_screen_ofs[0] + screen.w,
+                    tk_screen_ofs[1] + screen.h)
+
+            canvas.create_text(
+                    tk_screen_ofs[0],
+                    tk_screen_ofs[1] + screen.h,
+                    text="[{},{}]".format(i,j),
+                    anchor='sw')
 
     for res in results:
         i, j = res['index']
-
         tk_screen_ofs = (
                 tk_ofs + j * (screen.w + bezel[0]) + bezel[0],
                 tk_ofs + i * (screen.h + bezel[1]) + bezel[1])
-
-        canvas.create_rectangle(
-                tk_screen_ofs[0],
-                tk_screen_ofs[1],
-                tk_screen_ofs[0] + screen.w,
-                tk_screen_ofs[1] + screen.h)
-
-        canvas.create_text(
-                tk_screen_ofs[0],
-                tk_screen_ofs[1] + screen.h,
-                text="[{},{}]".format(i,j),
-                anchor='sw')
-
-        if any((s == None for s in res['window'].size)):
-            continue
 
         color = colors[(j + i * screen_rows) % len(colors)]
         canvas.create_rectangle(
@@ -271,4 +278,4 @@ def draw_result(display, wall, screen, bezel, screen_rows, results):
 if __name__ == '__main__':
     # path, rows, columns = sys.argv[1:4]
     # main(path, int(rows), int(columns)) 
-    main("cosmos.ogv", (2, 2), True)
+    gen_videowall_cmds("cosmos.ogv", (2, 2), [1920, 1080], True)
