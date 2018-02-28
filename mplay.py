@@ -4,11 +4,6 @@
 import subprocess
 import json
 import sys
-import pprint
-
-colors = ('green','blue','orange','yellow')
-
-div = 3.0
     
 class Rect:
     def __init__(self, pos=(0, 0), size=(0,0), parent=None):
@@ -31,18 +26,12 @@ class Rect:
         self.ar = self.w / self.h if self.h else 0
 
 def xpdyinfo(prop):
-    return tuple(
-            map(
-                int,
-                list(
-                    filter(
-                        None, 
+    return tuple( map( int,
+                list( filter( None,
                         subprocess.check_output('xdpyinfo | grep {}'.format(prop), shell=True)
-                        .decode().split(' ')
-                        )
+                        .decode().split(' '))
                     )[1].split('x')
-                )
-            )
+                ))
 
 
 def get_screen_rect():
@@ -50,19 +39,24 @@ def get_screen_rect():
     ppi = xpdyinfo('resolution')
     print(size)
 
-    size = (1080, 1920)
-    size = tuple(s/div for s in size)
+    # size = (1080, 1920)
+    size = (1440, 900)
     return Rect(size=size)
 
 
 def get_video_rect(path):
+    cmd = [ 'ffprobe',
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_streams',
+            path ]
     # info = json.loads(subprocess.check_output('ffprobe -v quiet -print_format json -show_streams {}'.format(path), shell=True).decode('utf-8'))
-    # video_w = info['streams'][0]['coded_width']
-    # video_h = info['streams'][0]['coded_height']
-    # size = (video_w, video_h)
+    info = json.loads(subprocess.check_output(cmd).decode())
+    video_w = info['streams'][0]['coded_width']
+    video_h = info['streams'][0]['coded_height']
+    size = (video_w, video_h)
     # size = (1920, 1080)
-    size = (640,480)
-    size = tuple(s/div for s in size)
+    # size = (640,480)
     return Rect(size=size)
 
 def get_wall_rect(display, video):
@@ -146,14 +140,14 @@ def calc_transform(video, screen, wall, mon_index, bezel):
     crop = Rect(
             pos = tuple(map(round, crop_pos)),
             size = tuple(map(round, crop_size)))
-    print(crop.pos, crop.size)
 
     return {
+        'index': mon_index[::-1],
         'crop': crop,
         'window': window
     }
 
-def start_mplayer(bcast, crop, window, path):
+def gen_mplayer_cmd(bcast, crop, window, path):
     '''
     bcast : broadcast address, maybe 10.1.15.255
     crop : Rect, in original video resolution + coordinates (formatted w:h:x:y)
@@ -164,13 +158,16 @@ def start_mplayer(bcast, crop, window, path):
     window.size : (w, h) size of mplayer window, automatically scaled
     path : obvious
     '''
-    crop_str = ':'.join(crop.size + crop.pos)
-    
-    cmd = "DISPLAY=:0 mplayer -udp-slave -udp-ip {} -vf {} -geometry {} -x {} -y {} {}".format(bcast, crop_str, window.pos, window.w, window.h, path)
-    subprocess.call(cmd, shell=True)
+    crop_str = ':'.join(map(str, crop.size + crop.pos))
 
-def main(path, screen_rows, screen_cols):
-    bezel = (20, 20)
+    
+    cmd = "DISPLAY=:0 mplayer -udp-slave -udp-ip {} -vf crop {} -geometry {}:{} -x {} -y {} {}".format(bcast, crop_str, window.x, window.y, window.w, window.h, path)
+    return cmd
+    #subprocess.call(cmd, shell=True)
+
+def main(path, size, draw = False):
+    screen_rows, screen_cols = size
+    bezel = (100, 100)
 
     screen = get_screen_rect()
     video = get_video_rect(path)
@@ -187,85 +184,91 @@ def main(path, screen_rows, screen_cols):
     print('wall scale = {},{}'.format(scale_x, scale_y))
     print()
     
-    ofs = 20
 
+    results = [
+            calc_transform(video, screen , wall, (j,i), bezel)
+            for j in range(screen_cols)
+            for i in range(screen_rows)
+            ]
+
+    for res in results:
+        cmd = gen_mplayer_cmd('10.1.15.255', res['crop'], res['window'], path)
+        print("{}: {}".format(res['index'], cmd))
+
+    if draw:
+        draw_result(display, wall, screen, bezel, screen_rows, results)
+
+
+def draw_result(display, wall, screen, bezel, screen_rows, results):
     import tkinter
+    tk_scale = 0.2
+    tk_ofs = 20/tk_scale
+    colors = ('green','blue','orange','yellow')
+
     tk = tkinter.Tk()
     canvas = tkinter.Canvas(tk, width=700,height=500)
     canvas.pack(fill=tkinter.BOTH, expand=tkinter.YES)
 
+    # display
     canvas.create_rectangle(
-            ofs,
-            ofs,
-            ofs + display.w + bezel[0] * 2,
-            ofs + display.h + bezel[1] * 2, 
+            tk_ofs,
+            tk_ofs,
+            tk_ofs + display.w + bezel[0] * 2,
+            tk_ofs + display.h + bezel[1] * 2,
             width=2)
     canvas.create_text(
-            ofs,
-            ofs,
+            tk_ofs,
+            tk_ofs,
             text="display", anchor="sw")
 
+    # wall
     canvas.create_rectangle(
-            ofs + wall.pos[0] + bezel[0],
-            ofs + wall.pos[1] + bezel[1],
-            ofs + wall.x1[0] + bezel[0],
-            ofs + wall.x1[1] + bezel[1],
+            tk_ofs + wall.pos[0] + bezel[0],
+            tk_ofs + wall.pos[1] + bezel[1],
+            tk_ofs + wall.x1[0] + bezel[0],
+            tk_ofs + wall.x1[1] + bezel[1],
             outline='red',width=2)
     canvas.create_text(
-            ofs + wall.pos[0] + bezel[0],
-            ofs + wall.pos[1] + bezel[1],
+            tk_ofs + wall.pos[0] + bezel[0],
+            tk_ofs + wall.pos[1] + bezel[1],
             text="wall", anchor="sw")
 
 
-    for i in range(screen_rows):
-        for j in range(screen_cols):
-            # draw screens
-            screen_ofs = (
-                    ofs + j * (screen.w + bezel[0]) + bezel[0],
-                    ofs + i * (screen.h + bezel[1]) + bezel[1])
+    for res in results:
+        i, j = res['index']
 
-            canvas.create_rectangle(
-                    screen_ofs[0],
-                    screen_ofs[1],
-                    screen_ofs[0] + screen.w,
-                    screen_ofs[1] + screen.h)
+        tk_screen_ofs = (
+                tk_ofs + j * (screen.w + bezel[0]) + bezel[0],
+                tk_ofs + i * (screen.h + bezel[1]) + bezel[1])
 
-            canvas.create_text(
-                    screen_ofs[0],
-                    screen_ofs[1] + screen.h,
-                    text="[{},{}]".format(i,j),
-                    anchor='sw')
+        canvas.create_rectangle(
+                tk_screen_ofs[0],
+                tk_screen_ofs[1],
+                tk_screen_ofs[0] + screen.w,
+                tk_screen_ofs[1] + screen.h)
 
-            # print('[{},{}]:'.format(i,j))
-            res = calc_transform(
-                    video,
-                    screen, 
-                    wall, 
-                    (j,i),
-                    bezel)
+        canvas.create_text(
+                tk_screen_ofs[0],
+                tk_screen_ofs[1] + screen.h,
+                text="[{},{}]".format(i,j),
+                anchor='sw')
 
-            s = pprint.pformat(res, indent=4)
-            
-            color = colors[(j + i * screen_rows) % len(colors)]
+        if any((s == None for s in res['window'].size)):
+            continue
 
-            if res['window'].w == None \
-                or res['window'].h == None:    
-                continue
-            canvas.create_rectangle(
-                    screen_ofs[0] + res['window'].x,
-                    screen_ofs[1] + res['window'].y,
-                    screen_ofs[0] + res['window'].x + res['window'].w,
-                    screen_ofs[1] + res['window'].y + res['window'].h,
-                    outline=color, width=3)
+        color = colors[(j + i * screen_rows) % len(colors)]
+        canvas.create_rectangle(
+                tk_screen_ofs[0] + res['window'].x,
+                tk_screen_ofs[1] + res['window'].y,
+                tk_screen_ofs[0] + res['window'].x + res['window'].w,
+                tk_screen_ofs[1] + res['window'].y + res['window'].h,
+                outline=color, width=3)
 
-            # canvas.create_text(
-            #         screen_ofs[0] + res['window_pos'][0],
-            #         screen_ofs[1] + res['window_pos'][1],
-            #         text="[{},{}]".format(j,i))
+    canvas.scale("all", 0, 0, tk_scale, tk_scale)
     tk.mainloop()
+
 
 if __name__ == '__main__':
     # path, rows, columns = sys.argv[1:4]
     # main(path, int(rows), int(columns)) 
-    # main("cosmos.ogv", 1, 4)
-    main("cosmos.ogv", 2,5)
+    main("cosmos.ogv", (2, 2), True)
