@@ -51,11 +51,12 @@ def get_video_rect(path):
             '-print_format', 'json',
             '-show_streams',
             path ]
-    # info = json.loads(subprocess.check_output(cmd).decode())
-    # video_w = info['streams'][0]['coded_width']
-    # video_h = info['streams'][0]['coded_height']
-    # size = (video_w, video_h)
-    size = (1920, 1080)
+    info = json.loads(subprocess.check_output(cmd).decode())
+    video_w = info['streams'][0]['coded_width']
+    video_h = info['streams'][0]['coded_height']
+    size = (video_w, video_h)
+    # size = (1920, 1080)
+    # size = (1080, 1080)
     # size = (640,480)
     return Rect(size=size)
 
