@@ -52,8 +52,8 @@ def get_video_rect(path):
             '-show_streams',
             path ]
     info = json.loads(subprocess.check_output(cmd).decode())
-    video_w = info['streams'][0]['coded_width']
-    video_h = info['streams'][0]['coded_height']
+    video_w = info['streams'][0]['width']
+    video_h = info['streams'][0]['height']
     size = (video_w, video_h)
     # size = (1920, 1080)
     # size = (1080, 1080)
@@ -132,6 +132,8 @@ def calc_transform(video, screen, wall, mon_index, bezel):
             return None
 
         crop_size[i], crop_pos[i] = calc_crop_vars(s0, win_pos[i], win_size[i], wall.pos[i], scale)
+    # print('size', crop_size)
+    # print('pos', crop_pos)
 
 
     window = Rect(
@@ -168,7 +170,7 @@ def gen_mplayer_cmd(bcast, crop, window, path):
 
 def gen_videowall_cmds(path, size, res = None, draw = False):
     screen_rows, screen_cols = size
-    bezel = (100, 100)
+    bezel = (200, 200)
 
     screen = get_screen_rect(res)
     video = get_video_rect(path)
@@ -178,11 +180,11 @@ def gen_videowall_cmds(path, size, res = None, draw = False):
     scale_x = wall.w / video.w
     scale_y = wall.h / video.h
 
-    print('screen size = {}x{}'.format(screen.w, screen.h))
-    print('video size = {}x{}'.format(video.w, video.h))
-    print('display size = {}x{}'.format(display.w, display.h))
-    print('wall size = {}x{}'.format(wall.w, wall.h))
-    print('wall scale = {},{}'.format(scale_x, scale_y))
+    print('screen size = {} x {}'.format(screen.w, screen.h))
+    print('video size = {} x {}'.format(video.w, video.h))
+    print('display size = {} x {}'.format(display.w, display.h))
+    print('wall size = {} x {}'.format(wall.w, wall.h))
+    print('wall scale = {:.2f} x {:.2f}'.format(scale_x, scale_y))
     print()
     
     results = (
@@ -191,13 +193,12 @@ def gen_videowall_cmds(path, size, res = None, draw = False):
             for i in range(screen_rows)
             )
 
-    results = list(filter(None, results))
+    results = filter(None, results)
 
-    final = []
-    for res in results:
-        cmd = gen_mplayer_cmd('10.1.15.255', res['crop'], res['window'], path)
-        # print("{}: {}".format(res['index'], cmd))
-        final.append({'pos': res['index'], 'cmd': cmd})
+    final = ({
+        'pos': res['index'],
+        'cmd': gen_mplayer_cmd('10.1.15.255', res['crop'], res['window'], path)
+        } for res in results)
 
     if draw:
         draw_result(display, wall, screen, bezel, size, results)
@@ -274,9 +275,3 @@ def draw_result(display, wall, screen, bezel, size, results):
 
     canvas.scale("all", 0, 0, tk_scale, tk_scale)
     tk.mainloop()
-
-
-if __name__ == '__main__':
-    # path, rows, columns = sys.argv[1:4]
-    # main(path, int(rows), int(columns)) 
-    gen_videowall_cmds("cosmos.ogv", (2, 2), [1920, 1080], True)
