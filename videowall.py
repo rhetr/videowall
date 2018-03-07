@@ -15,16 +15,18 @@ def get_cmd_by_pos(cmds, node):
         if cmd['pos'] == tuple(node['pos']):
             return cmd['cmd']
 
-def main(target, config):
+def main(config, target=None):
     res = config['resolution']
     nodes = config['nodes']
+    if not target:
+        target = config['target']
     size = get_matrix_size(nodes.values())
 
     # mplay should generate
     # [ { pos: (0,0),
     #   cmd: cmd },
     #   ... ]
-    cmds = mplay.gen_videowall_cmds(target, size, res, True)
+    cmds = list(mplay.gen_videowall_cmds(target, size, res))
 
     # need ssh key
     for node in nodes.values():
@@ -36,14 +38,12 @@ def main(target, config):
 
 if __name__ == '__main__':
 
-    videowall_dir = '/tmp/videowall'
-    target_dir = os.path.join(videowall_dir, 'target')
-
-    # can fail
+    # videowall_dir = '/tmp/videowall'
+    # target_dir = os.path.join(videowall_dir, 'target')
+    # # can fail
     # target = os.listdir(target_dir)[0]
 
-    target = 'cosmos.ogv'
     with open('config.yaml') as config_file:
         config = yaml.load(config_file)
 
-    main(target, config)
+    main(config)
