@@ -18,23 +18,23 @@ def get_cmd_by_pos(cmds, node):
 def main(config, target=None):
     res = config['resolution']
     nodes = config['nodes']
+    bcast = config['bcast']
     if not target:
         target = config['target']
     size = get_matrix_size(nodes.values())
 
-    # mplay should generate
-    # [ { pos: (0,0),
-    #   cmd: cmd },
-    #   ... ]
-    cmds = list(mplay.gen_videowall_cmds(target, size, res))
+    cmds = list(mplay.gen_videowall_cmds(target, size, res, bcast))
 
-    # need ssh key
     for node in nodes.values():
         ip = node['ip']
         cmd = get_cmd_by_pos(cmds, node)
         if cmd:
             print('ssh', ip, cmd)
-        # subprocess.Popen(['ssh', ip, cmd])
+            # need ssh key
+            # subprocess.Popen(['ssh', ip, cmd])
+    # master command
+    master_cmd = ('mplayer', '-loop', '0', '-udp-master', '-udp-ip', bcast, target)
+    print(' '.join(master_cmd))
 
 if __name__ == '__main__':
 

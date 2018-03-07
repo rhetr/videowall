@@ -25,6 +25,9 @@ class Rect:
         self.w, self.h = self.size
         self.ar = self.w / self.h if self.h else None
 
+def quote_enclose(path):
+    return "'{}'".format(path.strip('"'))
+
 def xpdyinfo(prop):
     return tuple( map( int,
                 list( filter( None,
@@ -168,7 +171,7 @@ def gen_mplayer_cmd(bcast, crop, window, path):
     return cmd
     #subprocess.call(cmd, shell=True)
 
-def gen_videowall_cmds(path, size, res = None, draw = False):
+def gen_videowall_cmds(path, size, res, bcast, draw = False):
     screen_rows, screen_cols = size
     bezel = (200, 200)
 
@@ -197,7 +200,7 @@ def gen_videowall_cmds(path, size, res = None, draw = False):
 
     final = ({
         'pos': res['index'],
-        'cmd': gen_mplayer_cmd('10.1.15.255', res['crop'], res['window'], path)
+        'cmd': gen_mplayer_cmd(bcast, res['crop'], res['window'], quote_enclose(path))
         } for res in results)
 
     if draw:
