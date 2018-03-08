@@ -4,9 +4,6 @@
 # install
 apt install -y Xorg mplayer
 
-## might not need these
-# apt install -y xinit x11-xserver-utils xserver-xorg-legacy
-
 echo needs_roots_rights=yes >> /etc/X11/Xwrapper.config
 
 ## install videowall to /opt
@@ -15,8 +12,6 @@ cp -t /opt/videowall/ \
 cp 60-videowall.rules /etc/udev/rules.d/
 
 ## autostart Xorg
-
-## USERNAME and USER_HOME should be exported by node/run
-# USERNAME=perry
-# USER_HOME=/home/$USERNAME
+# $USER_HOME needs to be in env. should be exported by node/run
+# may need to address rotation
 echo '[[ $(tty) = "/dev/tty1" ]] && exec Xorg' >> $USER_HOME/.bashrc
