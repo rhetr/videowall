@@ -169,7 +169,6 @@ def gen_mplayer_cmd(bcast, crop, window, path):
     
     cmd = "DISPLAY=:0 mplayer -udp-slave -udp-ip {} -vf crop={} -geometry {}:{} -x {} -y {} {}".format(bcast, crop_str, window.x, window.y, window.w, window.h, path)
     return cmd
-    #subprocess.call(cmd, shell=True)
 
 def gen_videowall_cmds(path, size, res, bcast, draw = False):
     screen_rows, screen_cols = size
