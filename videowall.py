@@ -10,40 +10,64 @@ import mplay
 def get_matrix_size(values):
     return tuple(b + 1 for b in max(((a['pos'] for a in values))))
 
-def get_cmd_by_pos(cmds, node):
+def make_cmd_mat(cmds, size):
+    x, y = size
+    cmd_mat = [[None] * y] * x
     for cmd in cmds:
-        if cmd['pos'] == tuple(node['pos']):
-            return cmd['cmd']
+        i, j = cmd['pos']
+        cmd_mat[i][j] = cmd['cmd']
+    return cmd_mat
+
+def merge_node_cmd(cmd_mat, node):
+    node['cmd'] = cmd_mat[node['pos'][0]][node['pos'][1]]
+    return node
+
+def rsync(ip, path):
+    cmd = ('rsync', path, '{}:{}'.format(ip, path))
+    print(cmd)
+    # subprocess.call(cmd)
+
+def remove_remote(ip, path):
+    remote_cmd = "rm '{}'".format(path)
+    cmd = ('ssh', ip, remote_cmd)
+    subprocess.call(cmd)
 
 def main(config, target=None):
     res = config['resolution']
     nodes = config['nodes']
     bcast = config['bcast']
-    if not target:
-        target = config['target']
+    target = config['target'] if not target else target
     size = get_matrix_size(nodes.values())
 
-    cmds = list(mplay.gen_videowall_cmds(target, size, res, bcast))
+    cmds = mplay.gen_videowall_cmds(target, size, res, bcast)
+    cmd_mat = make_cmd_mat(cmds, size)
+    nodes = (merge_node_cmd(cmd_mat, node) for node in nodes.values())
+    active_nodes = [node for node in nodes if node['cmd']]
 
-    for node in nodes.values():
-        ip = node['ip']
-        cmd = get_cmd_by_pos(cmds, node)
-        if cmd:
-            print('ssh', ip, cmd)
-            # need ssh key
-            # subprocess.Popen(['ssh', ip, cmd])
-    # master command
+    for node in active_nodes:
+        rsync(node['ip'], target)
+        print('ssh', node['ip'], node['cmd'])
+        # node['proc'] = subprocess.Popen(('ssh', node['ip'], cmd))
+
     master_cmd = ('mplayer', '-loop', '0', '-udp-master', '-udp-ip', bcast, target)
     print(' '.join(master_cmd))
+    # subprocess.call(master_cmd)
+
+    # # cleanup; called when mplayer is terminated
+    # os.remove(target)
+    for node in active_nodes:
+        pass
+        # node['proc'].terminate()
+        # remove_remote(node['ip'], target)
 
 if __name__ == '__main__':
-
-    # videowall_dir = '/tmp/videowall'
-    # target_dir = os.path.join(videowall_dir, 'target')
-    # # can fail
-    # target = os.listdir(target_dir)[0]
 
     with open('config.yaml') as config_file:
         config = yaml.load(config_file)
 
-    main(config)
+    target = None if len(sys.argv) < 2 else sys.argv[1]
+    if not os.path.isfile(target):
+        print('invalid path')
+        sys.exit(1)
+    else:
+        main(config, target)

@@ -29,7 +29,10 @@ if [[ $ACTION = "add" ]]; then
     umount $DEV
 
     # run it
+    videowall $TARGET
 
 elif [[ $ACTION = "remove" ]]; then
+    # end videowall by killing mplayer
+    pkill mplayer
     echo $(date) DEV REMOVE >> $VIDEOWALL_DIR/log
 fi
